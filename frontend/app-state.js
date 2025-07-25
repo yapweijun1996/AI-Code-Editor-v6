@@ -1,8 +1,11 @@
-import { setup, createMachine, assign } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
+import { setup, createMachine, assign, raise } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 
 export const appMachine = setup({
   actors: {
     sendMessageService: () => Promise.resolve(), // Placeholder
+  },
+  actions: {
+    sendAppReady: raise({ type: 'APP_READY' }),
   },
 }).createMachine({
   id: 'app',
@@ -18,6 +21,7 @@ export const appMachine = setup({
   },
   states: {
     initializing: {
+      entry: ['sendAppReady'],
       on: {
         APP_READY: 'idle',
         APP_FAILED: {
