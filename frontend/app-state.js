@@ -4,9 +4,6 @@ export const appMachine = setup({
   actors: {
     sendMessageService: () => Promise.resolve(), // Placeholder
   },
-  actions: {
-    sendAppReady: raise({ type: 'APP_READY' }),
-  },
 }).createMachine({
   id: 'app',
   initial: 'initializing',
@@ -21,7 +18,7 @@ export const appMachine = setup({
   },
   states: {
     initializing: {
-      entry: ['sendAppReady'],
+      entry: raise({ type: 'APP_READY' }),
       on: {
         APP_READY: 'idle',
         APP_FAILED: {
