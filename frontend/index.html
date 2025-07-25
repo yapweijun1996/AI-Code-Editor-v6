@@ -15,6 +15,11 @@
     <div class="container" id="split-container">
       <div id="file-tree-container" class="sidebar">
         <h2>Project Files</h2>
+        <div id="directory-controls">
+          <button id="open-directory-button">Open Folder</button>
+          <button id="reconnect-button" style="display: none;">Reconnect</button>
+          <button id="forget-folder-button" style="display: none;">Forget Folder</button>
+        </div>
         <div id="file-tree"></div>
       </div>
       <div id="editor-container" class="main-content">
@@ -126,7 +131,7 @@
       import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai';
       window.GoogleGenerativeAI = GoogleGenerativeAI;
     </script>
-    <script src="app.js"></script>
+    <script type="module" src="js/main.js"></script>
     <script src="folder-management.test.js"></script>
   </body>
 </html>
