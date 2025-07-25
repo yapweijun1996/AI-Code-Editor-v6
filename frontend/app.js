@@ -812,7 +812,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
       
       this.lastRequestTime = Date.now();
 
-      this.isCancelled = false;
+      // this.isCancelled is now handled by the state machine's state
 
       // Prepare initial user message and display it
       let displayMessage = prompt;
@@ -839,7 +839,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
         ApiKeyManager.resetTriedKeys();
 
         // Loop to handle potential multi-turn tool calls and API key rotation
-        while (running && !this.isCancelled) {
+        while (running) {
           const modelName = modelSelector.value; // Always capture latest value before each attempt
           try {
             // This is the main conversation loop.
@@ -854,7 +854,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
             let functionCalls = [];
 
             for await (const chunk of result.stream) {
-              if (this.isCancelled) break;
               const chunkText = chunk.text();
               if (chunkText) {
                 fullResponseText += chunkText;
@@ -865,8 +864,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
                 functionCalls.push(...chunkFunctionCalls);
               }
             }
-
-            if (this.isCancelled) break;
 
             // If there are tool calls, execute them and continue the loop
             if (functionCalls.length > 0) {
@@ -914,10 +911,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
             }
           }
         }
-
-        if (this.isCancelled) {
-          this.appendMessage('Cancelled by user.', 'ai');
-        }
       } catch (error) {
         this.appendMessage(`An error occurred: ${error.message}`, 'ai');
         console.error('Chat Error:', error);
@@ -928,11 +921,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
     },
 
     cancelMessage() {
-      if (this.isSending) {
-        this.isCancelled = true;
-        // The SDK doesn't have a direct abort controller,
-        // but we can stop processing the stream.
-      }
+      // This is now handled by the state machine sending a CANCEL_MESSAGE event
     },
 
     async clearHistory() {
@@ -1424,9 +1413,11 @@ const toolLogContainer = document.getElementById('tool-log-container');
   saveKeysButton.addEventListener('click', () => ApiKeyManager.saveKeys());
   const appActor = createActor(appMachine, {
     devTools: true,
-    services: {
-      sendMessageService: (context, event) => {
-        return GeminiChat.sendMessage(event.prompt, event.image);
+    implementations: {
+      actors: {
+        sendMessageService: ({ input }) => {
+          return GeminiChat.sendMessage(input.prompt, input.image);
+        },
       },
     },
   }).start();
@@ -1465,7 +1456,9 @@ const toolLogContainer = document.getElementById('tool-log-container');
       });
     }
   });
-  chatCancelButton.addEventListener('click', () => GeminiChat.cancelMessage());
+  chatCancelButton.addEventListener('click', () => {
+    appActor.send({ type: 'CANCEL_MESSAGE' });
+  });
 
  // Rate Limiter Listeners
  rateLimitSlider.addEventListener('input', () => {
@@ -1515,7 +1508,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      GeminiChat.sendMessage();
+      chatSendButton.click(); // Trigger the same logic as the button click
     }
   });
   editorContainer.addEventListener('keydown', (e) => {

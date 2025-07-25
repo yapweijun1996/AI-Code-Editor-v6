@@ -1,6 +1,10 @@
-import { createMachine, assign } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
+import { setup, createMachine, assign } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 
-export const appMachine = createMachine({
+export const appMachine = setup({
+  actors: {
+    sendMessageService: () => Promise.resolve(), // Placeholder
+  },
+}).createMachine({
   id: 'app',
   initial: 'initializing',
   context: {
@@ -18,7 +22,7 @@ export const appMachine = createMachine({
         APP_READY: 'idle',
         APP_FAILED: {
           target: 'error',
-          actions: assign({ error: (context, event) => event.error }),
+          actions: assign({ error: ({ event }) => event.error }),
         },
       },
     },
@@ -27,13 +31,13 @@ export const appMachine = createMachine({
         SEND_MESSAGE: {
           target: 'sendingMessage',
           actions: assign({
-            userPrompt: (context, event) => event.prompt,
-            uploadedImage: (context, event) => event.image,
+            userPrompt: ({ event }) => event.prompt,
+            uploadedImage: ({ event }) => event.image,
           }),
         },
         TOGGLE_FILE_TREE: {
           actions: assign({
-            isFileTreeVisible: (context) => !context.isFileTreeVisible,
+            isFileTreeVisible: ({ context }) => !context.isFileTreeVisible,
           }),
         },
       },
@@ -44,7 +48,11 @@ export const appMachine = createMachine({
         processing: {
           invoke: {
             id: 'sendMessageToAI',
-            src: 'sendMessageService', // This will be implemented in app.js
+            src: 'sendMessageService',
+            input: ({ context }) => ({
+              prompt: context.userPrompt,
+              image: context.uploadedImage,
+            }),
             onDone: {
               target: '#app.idle', // Go back to top-level idle
               actions: assign({
@@ -55,7 +63,7 @@ export const appMachine = createMachine({
             },
             onError: {
               target: 'handleError',
-              actions: assign({ error: (context, event) => event.data }),
+              actions: assign({ error: ({ event }) => event.data }),
             },
           },
         },
@@ -65,7 +73,7 @@ export const appMachine = createMachine({
             RETRY: 'processing',
             FAIL: {
               target: '#app.error',
-              actions: assign({ error: (context, event) => event.error }),
+              actions: assign({ error: ({ event }) => event.error }),
             },
           },
         },
