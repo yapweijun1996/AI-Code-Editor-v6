@@ -1,10 +1,10 @@
 import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 import { appMachine } from './app-state.js';
 
-XStateInspect.inspect({
-  iframe: false,
-});
 document.addEventListener('DOMContentLoaded', () => {
+  XStateInspect.inspect({
+    iframe: false,
+  });
   // --- Editor and File Tree Elements ---
   const fileTreeContainer = document.getElementById('file-tree');
   const editorContainer = document.getElementById('editor');
