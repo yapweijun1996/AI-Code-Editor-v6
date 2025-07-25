@@ -561,17 +561,12 @@ document.addEventListener('DOMContentLoaded', () => {
 						parameters.filename,
 						);
 						await parentHandle.removeEntry(fileNameToDelete);
-						let handleToDelete = null;
-						for (const handle of openFiles.keys()) {
-							if (handle.name === fileNameToDelete) {
-								handleToDelete = handle;
-								break;
-							}
+						
+						// Close the tab if the deleted file is open
+						if (openFiles.has(parameters.filename)) {
+							closeTab(parameters.filename);
 						}
-						// To close a tab, we now need the path, not just the handle.
-						// This part of the logic might need adjustment if we want to close tabs on file deletion by path.
-						// For now, the most robust approach is to let the user close the tab manually.
-						// if (handleToDelete) closeTab(??path??);
+						
 						await refreshFileTree();
 						result = {
 							status: 'Success',
@@ -649,6 +644,9 @@ document.addEventListener('DOMContentLoaded', () => {
 							}),
 						});
 						result = await response.json();
+						if (result.status === 'Success') {
+							await refreshFileTree();
+						}
 						break;
 					}
 					case 'build_or_update_codebase_index': {
@@ -1060,9 +1058,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	// =================================================================
 	async function refreshFileTree() {
 		if (rootDirectoryHandle) {
-			fileTreeContainer.innerHTML = '';
-			const tree = await buildTree(rootDirectoryHandle);
-			renderTree(tree, fileTreeContainer);
+			// Destroy the old tree instance if it exists
+			const treeInstance = $('#file-tree').jstree(true);
+			if (treeInstance) {
+				treeInstance.destroy();
+			}
+			
+			const treeData = await buildTree(rootDirectoryHandle);
+			renderTree(treeData);
+			
 			openDirectoryButton.style.display = 'none';
 			forgetFolderButton.style.display = 'block';
 			reconnectButton.style.display = 'none';
@@ -1079,56 +1083,63 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 	
-	const buildTree = async (dirHandle, omitHandles = false) => {
-		const tree = { name: dirHandle.name, kind: dirHandle.kind, children: [] };
-		if (!omitHandles) {
-			tree.handle = dirHandle;
-		}
+	const buildTree = async (dirHandle, currentPath = '') => {
+		const children = [];
 		for await (const entry of dirHandle.values()) {
-			tree.children.push(
-			entry.kind === 'directory'
-			? await buildTree(entry, omitHandles)
-			: {
-				name: entry.name,
-				kind: entry.kind,
-				handle: omitHandles ? undefined : entry,
-			},
-			);
+			const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+			if (entry.kind === 'directory') {
+				children.push({
+					id: newPath,
+					text: entry.name,
+					type: 'folder',
+					children: await buildTree(entry, newPath),
+				});
+			} else {
+				children.push({
+					id: newPath,
+					text: entry.name,
+					type: 'file',
+					li_attr: { 'data-path': newPath, 'data-handle': entry }, // Store path and handle
+				});
+			}
 		}
-		return tree;
+		// Sort so folders appear before files
+		children.sort((a, b) => {
+			if (a.type === 'folder' && b.type !== 'folder') return -1;
+			if (a.type !== 'folder' && b.type === 'folder') return 1;
+			return a.text.localeCompare(b.text);
+		});
+		return children;
 	};
 	
-	const renderTree = (node, element, currentPath = '') => {
-		const ul = document.createElement('ul');
-		node.children
-		?.sort((a, b) => {
-			if (a.kind === 'directory' && b.kind !== 'directory') return -1;
-			if (a.kind !== 'directory' && b.kind === 'directory') return 1;
-			return a.name.localeCompare(b.name);
-		})
-		.forEach((child) => {
-			const newPath = currentPath
-			? `${currentPath}/${child.name}`
-			: child.name;
-			if (child.kind === 'directory') {
-				const details = document.createElement('details');
-				const summary = document.createElement('summary');
-				summary.textContent = child.name;
-				details.appendChild(summary);
-				renderTree(child, details, newPath); // Pass path down
-				element.appendChild(details);
-			} else {
-				const li = document.createElement('li');
-				li.textContent = child.name;
-				li.classList.add('file');
-				li.addEventListener('click', (e) => {
-					e.stopPropagation();
-					openFile(child.handle, newPath); // Use path to open
-				});
-				ul.appendChild(li);
+	const renderTree = (treeData) => {
+		$('#file-tree')
+		.on('select_node.jstree', async (e, data) => {
+			if (data.node.type === 'file') {
+				const filePath = data.node.id;
+				const fileHandle = await getFileHandleFromPath(
+				rootDirectoryHandle,
+				filePath,
+				);
+				openFile(fileHandle, filePath);
 			}
+		})
+		.jstree({
+			core: {
+				data: treeData,
+				themes: {
+					name: 'default',
+					responsive: true,
+					icons: true,
+				},
+			},
+			types: {
+				default: { icon: 'jstree-icon jstree-file' },
+				folder: { icon: 'jstree-icon jstree-folder' },
+				file: { icon: 'jstree-icon jstree-file' },
+			},
+			plugins: ['types'],
 		});
-		if (ul.hasChildNodes()) element.appendChild(ul);
 	};
 	
 	let openFiles = new Map(); // Key: filePath (string), Value: { handle, name, model, viewState }
@@ -1156,6 +1167,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			
 			await switchTab(filePath);
 			renderTabs();
+			chatInput.focus(); // Set focus to chat input
 		} catch (error) {
 			console.error(`Failed to open file ${filePath}:`, error);
 		}
@@ -1176,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		editor.focus();
 		editor.updateOptions({ readOnly: false });
 		renderTabs();
+		chatInput.focus(); // Set focus to chat input
 	};
 	
 	const closeTab = (filePath) => {
