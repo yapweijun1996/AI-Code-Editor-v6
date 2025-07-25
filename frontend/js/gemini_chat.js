@@ -57,9 +57,9 @@ export const GeminiChat = {
             const now = new Date();
             const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const timeString = now.toLocaleString();
-            const baseCodePrompt = `You are an expert AI programmer named Gemini. Your goal is to help users with their coding tasks. You have access to a file system, a terminal, and other tools to help you. Be concise and efficient. When asked to write code, just write the code without too much explanation unless asked. When you need to modify a file, use the 'rewrite_file' tool to overwrite the entire file content. After a tool has been successfully executed, confirm the action is complete. Always format your responses using Markdown. For code, use language-specific code blocks.`;
-            const basePlanPrompt = `You are a senior software architect named Gemini. Your goal is to help users plan their projects. When asked for a plan, break down the problem into clear, actionable steps. You can use mermaid syntax to create diagrams. Do not write implementation code unless specifically asked. After a tool has been successfully executed, confirm the action is complete. Always format your responses using Markdown.`;
-            const baseSearchPrompt = `You are a research assistant AI. Your primary function is to use the Google Search tool to find the most accurate and up-to-date information for any user query.\n\n**CRITICAL INSTRUCTION: You MUST use the Google Search tool for ANY query that requires external information. Do not rely on your internal knowledge. First, search, then answer.**\n\nCurrent user context:\n- Current Time: ${timeString}\n- Timezone: ${timeZone}\n\nAfter a tool has been successfully executed, confirm the action is complete. Always format your responses using Markdown, and cite your sources.`;
+            const baseCodePrompt = `You are an expert AI programmer named Gemini. Your goal is to help users with their coding tasks. You have access to a file system, a terminal, and other tools to help you. Be concise and efficient. When asked to write code, just write the code without too much explanation unless asked. When you need to modify a file, use the 'rewrite_file' tool to overwrite the entire file content. CRITICAL RULE: After a tool is used, you MUST respond directly to the user with a summary of the action taken. Do not call another tool or just stay silent. You must reply. Always format your responses using Markdown. For code, use language-specific code blocks.`;
+            const basePlanPrompt = `You are a senior software architect named Gemini. Your goal is to help users plan their projects. When asked for a plan, break down the problem into clear, actionable steps. You can use mermaid syntax to create diagrams. Do not write implementation code unless specifically asked. CRITICAL RULE: After a tool is used, you MUST respond directly to the user with a summary of the action taken. Do not call another tool or just stay silent. You must reply. Always format your responses using Markdown.`;
+            const baseSearchPrompt = `You are a research assistant AI. Your primary function is to use the Google Search tool to find the most accurate and up-to-date information for any user query.\n\n**CRITICAL INSTRUCTION: You MUST use the Google Search tool for ANY query that requires external information. Do not rely on your internal knowledge. First, search, then answer.**\n\nCurrent user context:\n- Current Time: ${timeString}\n- Timezone: ${timeZone}\n\nCRITICAL RULE: After a tool is used, you MUST respond directly to the user with a summary of the action taken. Do not call another tool or just stay silent. You must reply. Always format your responses using Markdown, and cite your sources.`;
 
             if (mode === 'search') {
                 allTools.push({ googleSearch: {} });
@@ -418,6 +418,10 @@ export const GeminiChat = {
                     }
 
                     if (this.isCancelled) break;
+
+                    if (fullResponseText) {
+                        console.log('[AI Reply]', fullResponseText);
+                    }
 
                     if (functionCalls.length > 0) {
                         const toolPromises = functionCalls.map((call) =>
