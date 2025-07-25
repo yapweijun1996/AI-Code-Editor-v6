@@ -1,5 +1,5 @@
 import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
-import { createBrowserInspector } from 'https://cdn.jsdelivr.net/npm/@xstate/inspect@0.8.0/+esm';
+import { createBrowserInspector } from 'https://cdn.jsdelivr.net/npm/@xstate/browser/+esm';
 import { appMachine } from './app-state.js';
 
 document.addEventListener('DOMContentLoaded', () => {
