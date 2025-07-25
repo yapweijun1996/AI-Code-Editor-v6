@@ -44,43 +44,32 @@ export const appMachine = setup({
       },
     },
     sendingMessage: {
-      initial: 'processing',
-      states: {
-        processing: {
-          invoke: {
-            id: 'sendMessageToAI',
-            src: 'sendMessageService',
-            input: ({ context }) => ({
-              prompt: context.userPrompt,
-              image: context.uploadedImage,
-            }),
-            onDone: {
-              target: '#app.idle', // Go back to top-level idle
-              actions: assign({
-                // Clear inputs after successful send
-                userPrompt: '',
-                uploadedImage: null,
-              }),
-            },
-            onError: {
-              target: 'handleError',
-              actions: assign({ error: ({ event }) => event.data }),
-            },
-          },
+      invoke: {
+        id: 'sendMessageToAI',
+        src: 'sendMessageService',
+        input: ({ context }) => ({
+          prompt: context.userPrompt,
+          image: context.uploadedImage,
+        }),
+        onDone: {
+          target: 'idle',
+          actions: assign({
+            userPrompt: '',
+            uploadedImage: null,
+            error: null,
+          }),
         },
-        handleError: {
-          // This state can decide whether to retry or fail
-          on: {
-            RETRY: 'processing',
-            FAIL: {
-              target: '#app.error',
-              actions: assign({ error: ({ event }) => event.error }),
-            },
-          },
+        onError: {
+          target: 'idle',
+          actions: assign({
+            error: ({ event }) => event.data,
+            userPrompt: '',
+            uploadedImage: null,
+          }),
         },
       },
       on: {
-        CANCEL_MESSAGE: 'idle', // Allow cancellation
+        CANCEL_MESSAGE: 'idle',
       },
     },
     error: {

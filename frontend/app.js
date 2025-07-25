@@ -430,6 +430,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
       } catch (error) {
         console.error('Failed to start chat session:', error);
         this.appendMessage(`Error: Could not start chat session. ${error.message}`, 'ai');
+        throw error;
       }
     },
 
