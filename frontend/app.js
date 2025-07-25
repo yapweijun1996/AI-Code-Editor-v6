@@ -1223,6 +1223,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
       md: 'markdown',
       php: 'php',
       cfml: 'coldfusion',
+      cfm: 'coldfusion',
     })[ext] || 'plaintext';
     
     function getPrettierParser(filename) {
