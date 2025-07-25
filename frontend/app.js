@@ -1,9 +1,7 @@
 import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
-import { createBrowserInspector } from 'https://cdn.jsdelivr.net/npm/@xstate/browser/+esm';
 import { appMachine } from './app-state.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-  const inspector = createBrowserInspector();
   // --- Editor and File Tree Elements ---
   const fileTreeContainer = document.getElementById('file-tree');
   const editorContainer = document.getElementById('editor');
@@ -1411,7 +1409,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
 
   saveKeysButton.addEventListener('click', () => ApiKeyManager.saveKeys());
   const appActor = createActor(appMachine, {
-    inspect: inspector.inspect,
     implementations: {
       actors: {
         sendMessageService: ({ input }) => {
