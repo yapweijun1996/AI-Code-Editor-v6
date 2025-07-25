@@ -407,6 +407,10 @@ document.addEventListener('DOMContentLoaded', () => {
 					functionDeclarations: [
 						{ name: 'create_file', description: "Creates a new file. IMPORTANT: File paths must be relative to the project root. Do NOT include the root folder's name in the path. Always use get_project_structure first to check for existing files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING' } }, required: ['filename', 'content'] } },
 						{ name: 'delete_file', description: "Deletes a file. IMPORTANT: File paths must be relative to the project root. Do NOT include the root folder's name in the path. CRITICAL: Use get_project_structure first to ensure the file exists.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
+						{ name: 'create_folder', description: "Creates a new folder. IMPORTANT: Folder paths must be relative to the project root. Do NOT include the root folder's name in the path. Can create nested folders.", parameters: { type: 'OBJECT', properties: { folder_path: { type: 'STRING' } }, required: ['folder_path'] } },
+						{ name: 'delete_folder', description: 'Deletes a folder and all of its contents recursively.', parameters: { type: 'OBJECT', properties: { folder_path: { type: 'STRING' } }, required: ['folder_path'] } },
+						{ name: 'rename_folder', description: 'Renames a folder.', parameters: { type: 'OBJECT', properties: { old_folder_path: { type: 'STRING' }, new_folder_path: { type: 'STRING' } }, required: ['old_folder_path', 'new_folder_path'] } },
+						{ name: 'rename_file', description: 'Renames a file.', parameters: { type: 'OBJECT', properties: { old_path: { type: 'STRING' }, new_path: { type: 'STRING' } }, required: ['old_path', 'new_path'] } },
 						{ name: 'read_file', description: "Reads the content of an existing file. IMPORTANT: File paths must be relative to the project root. Do NOT include the root folder's name in the path. Always use get_project_structure first to get the correct file path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
 						{ name: 'get_open_file_content', description: 'Gets the content of the currently open file in the editor.' },
 						{ name: 'get_selected_text', description: 'Gets the text currently selected by the user in the editor.' },
@@ -494,189 +498,144 @@ document.addEventListener('DOMContentLoaded', () => {
 		async executeTool(toolCall) {
 			const toolName = toolCall.name;
 			const parameters = toolCall.args;
-			// Create a more descriptive and useful log group for each tool call
 			const groupTitle = `AI Tool Call: ${toolName}`;
 			const groupContent = parameters && Object.keys(parameters).length > 0 ? parameters : 'No parameters';
-			console.groupCollapsed(groupTitle, groupContent);
+			console.group(groupTitle, groupContent);
 			const logEntry = this.appendToolLog(toolName, parameters);
 			
-			let result;
+			let resultForModel;
+			let resultForLog;
+			let isSuccess = true;
+			
 			try {
 				if (
 				!rootDirectoryHandle &&
 				[
-					'create_file',
-					'read_file',
-					'search_code',
-					'get_project_structure',
-					'delete_file',
-					'build_or_update_codebase_index',
-					'query_codebase',
+					'create_file', 'read_file', 'search_code', 'get_project_structure',
+					'delete_file', 'build_or_update_codebase_index', 'query_codebase',
+					'create_folder', 'delete_folder', 'rename_folder', 'rewrite_file',
+					'format_code', 'analyze_code'
 				].includes(toolName)
 				) {
-					throw new Error(
-					"No project folder is open. You must ask the user to click the 'Open Project Folder' button and then try the operation again.",
-					);
+					throw new Error("No project folder is open. Ask the user to open one.");
 				}
 				
 				switch (toolName) {
 					case 'get_project_structure': {
-						const tree = await buildTree(rootDirectoryHandle, true);
-						const structure_string = formatTreeToString(tree);
-						result = { status: 'Success', structure: structure_string };
+						const tree = await buildStructureTree(rootDirectoryHandle);
+						const structure = `${tree.name}\n${formatTreeToString(tree)}`;
+						resultForModel = { structure: structure };
 						break;
 					}
 					case 'read_file': {
-						const fileHandle = await getFileHandleFromPath(
-						rootDirectoryHandle,
-						parameters.filename,
-						);
+						const fileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.filename);
 						const file = await fileHandle.getFile();
 						const content = await file.text();
 						await openFile(fileHandle, parameters.filename);
-						result = { status: 'Success', content: content };
+						resultForModel = { content: content };
 						break;
 					}
 					case 'create_file': {
-						const fileHandle = await getFileHandleFromPath(
-						rootDirectoryHandle,
-						parameters.filename,
-						{ create: true },
-						);
+						const fileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.filename, { create: true });
 						const writable = await fileHandle.createWritable();
 						await writable.write(parameters.content);
 						await writable.close();
 						await refreshFileTree();
 						await openFile(fileHandle, parameters.filename);
-						result = {
-							status: 'Success',
-							message: `File '${parameters.filename}' created successfully.`,
-						};
+						resultForModel = { message: `File '${parameters.filename}' created successfully.` };
 						break;
 					}
 					case 'delete_file': {
-						const { parentHandle, fileNameToDelete } =
-						await getParentDirectoryHandle(
-						rootDirectoryHandle,
-						parameters.filename,
-						);
+						const { parentHandle, entryName: fileNameToDelete } = await getParentDirectoryHandle(rootDirectoryHandle, parameters.filename);
 						await parentHandle.removeEntry(fileNameToDelete);
-						
-						// Close the tab if the deleted file is open
-						if (openFiles.has(parameters.filename)) {
-							closeTab(parameters.filename);
-						}
-						
+						if (openFiles.has(parameters.filename)) closeTab(parameters.filename);
 						await refreshFileTree();
-						result = {
-							status: 'Success',
-							message: `File '${parameters.filename}' deleted successfully.`,
-						};
+						resultForModel = { message: `File '${parameters.filename}' deleted successfully.` };
+						break;
+					}
+					case 'delete_folder': {
+						const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirectoryHandle, parameters.folder_path);
+						await parentHandle.removeEntry(entryName, { recursive: true });
+						await refreshFileTree();
+						resultForModel = { message: `Folder '${parameters.folder_path}' deleted successfully.` };
+						break;
+					}
+					case 'rename_folder': {
+						await moveDirectory(rootDirectoryHandle, parameters.old_folder_path, parameters.new_folder_path);
+						await refreshFileTree();
+						resultForModel = { message: `Folder '${parameters.old_folder_path}' renamed to '${parameters.new_folder_path}' successfully.` };
+						break;
+					}
+					case 'rename_file': {
+						await moveFile(rootDirectoryHandle, parameters.old_path, parameters.new_path);
+						await refreshFileTree();
+						// Close the old file tab if it's open and open the new one
+						if (openFiles.has(parameters.old_path)) {
+							closeTab(parameters.old_path);
+							const newFileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.new_path);
+							await openFile(newFileHandle, parameters.new_path);
+						}
+						resultForModel = { message: `File '${parameters.old_path}' renamed to '${parameters.new_path}' successfully.` };
+						break;
+					}
+					case 'create_folder': {
+						await createDirectoryFromPath(rootDirectoryHandle, parameters.folder_path);
+						await refreshFileTree();
+						resultForModel = { message: `Folder '${parameters.folder_path}' created successfully.` };
 						break;
 					}
 					case 'search_code': {
 						const searchResults = [];
-						await searchInDirectory(
-						rootDirectoryHandle,
-						parameters.search_term,
-						'',
-						searchResults,
-						);
-						result = { status: 'Success', results: searchResults };
+						await searchInDirectory(rootDirectoryHandle, parameters.search_term, '', searchResults);
+						resultForModel = { results: searchResults };
 						break;
 					}
 					case 'get_open_file_content': {
-						if (!activeFileHandle) {
-							result = {
-								status: 'Error',
-								message: 'No file is currently open in the editor.',
-							};
-						} else {
-							const fileData = openFiles.get(activeFileHandle);
-							result = {
-								status: 'Success',
-								filename: fileData.name,
-								content: fileData.model.getValue(),
-							};
-						}
+						if (!activeFilePath) throw new Error('No file is currently open in the editor.');
+						const fileData = openFiles.get(activeFilePath);
+						resultForModel = { filename: fileData.name, content: fileData.model.getValue() };
 						break;
 					}
 					case 'get_selected_text': {
 						const selection = editor.getSelection();
-						if (!selection || selection.isEmpty()) {
-							result = {
-								status: 'Error',
-								message: 'No text is currently selected.',
-							};
-						} else {
-							result = {
-								status: 'Success',
-								selected_text: editor.getModel().getValueInRange(selection),
-							};
-						}
+						if (!selection || selection.isEmpty()) throw new Error('No text is currently selected.');
+						resultForModel = { selected_text: editor.getModel().getValueInRange(selection) };
 						break;
 					}
 					case 'replace_selected_text': {
 						const selection = editor.getSelection();
-						if (!selection || selection.isEmpty()) {
-							result = {
-								status: 'Error',
-								message: 'No text is currently selected to be replaced.',
-							};
-						} else {
-							editor.executeEdits('ai-agent', [
-								{ range: selection, text: parameters.new_text },
-							]);
-							result = {
-								status: 'Success',
-								message: 'Replaced the selected text.',
-							};
-						}
+						if (!selection || selection.isEmpty()) throw new Error('No text is selected to replace.');
+						editor.executeEdits('ai-agent', [{ range: selection, text: parameters.new_text }]);
+						resultForModel = { message: 'Replaced the selected text.' };
 						break;
 					}
 					case 'run_terminal_command': {
 						const response = await fetch('/api/execute-tool', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								toolName: 'run_terminal_command',
-								parameters: parameters,
-							}),
+							body: JSON.stringify({ toolName: 'run_terminal_command', parameters: parameters }),
 						});
-						result = await response.json();
-						if (result.status === 'Success') {
+						const terminalResult = await response.json();
+						if (terminalResult.status === 'Success') {
 							await refreshFileTree();
+							resultForModel = { output: terminalResult.output };
+						} else {
+							throw new Error(terminalResult.message);
 						}
 						break;
 					}
 					case 'build_or_update_codebase_index': {
-						this.appendMessage(
-						'Building codebase index... This may take a moment.',
-						'ai',
-						);
+						this.appendMessage('Building codebase index...', 'ai');
 						const index = await CodebaseIndexer.buildIndex(rootDirectoryHandle);
 						await DbManager.saveCodeIndex(index);
-						result = {
-							status: 'Success',
-							message: 'Codebase index built successfully.',
-						};
+						resultForModel = { message: 'Codebase index built successfully.' };
 						break;
 					}
 					case 'query_codebase': {
 						const index = await DbManager.getCodeIndex();
-						if (!index) {
-							result = {
-								status: 'Error',
-								message:
-								"No codebase index. Please run 'build_or_update_codebase_index'.",
-							};
-						} else {
-							const queryResults = await CodebaseIndexer.queryIndex(
-							index,
-							parameters.query,
-							);
-							result = { status: 'Success', results: queryResults };
-						}
+						if (!index) throw new Error("No codebase index. Please run 'build_or_update_codebase_index'.");
+						const queryResults = await CodebaseIndexer.queryIndex(index, parameters.query);
+						resultForModel = { results: queryResults };
 						break;
 					}
 					case 'get_file_history': {
@@ -684,131 +643,70 @@ document.addEventListener('DOMContentLoaded', () => {
 						const response = await fetch('/api/execute-tool', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								toolName: 'run_terminal_command',
-								parameters: { command },
-							}),
+							body: JSON.stringify({ toolName: 'run_terminal_command', parameters: { command } }),
 						});
-						result = await response.json();
+						const terminalResult = await response.json();
+						if (terminalResult.status === 'Success') {
+							resultForModel = { history: terminalResult.output };
+						} else {
+							throw new Error(terminalResult.message);
+						}
 						break;
 					}
 					case 'rewrite_file': {
-						const fileHandle = await getFileHandleFromPath(
-						rootDirectoryHandle,
-						parameters.filename,
-						);
+						const fileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.filename);
 						const writable = await fileHandle.createWritable();
 						await writable.write(parameters.content);
 						await writable.close();
-						
-						// Update the model in the editor if the file is open
 						if (openFiles.has(parameters.filename)) {
 							const fileData = openFiles.get(parameters.filename);
-							if (fileData) {
-								fileData.model.setValue(parameters.content);
-							}
+							if (fileData) fileData.model.setValue(parameters.content);
 						}
-						
 						await openFile(fileHandle, parameters.filename);
-						result = {
-							status: 'Success',
-							message: `File '${parameters.filename}' rewritten successfully.`,
-						};
+						resultForModel = { message: `File '${parameters.filename}' rewritten successfully.` };
 						break;
 					}
 					case 'format_code': {
-						const fileHandle = await getFileHandleFromPath(
-						rootDirectoryHandle,
-						parameters.filename,
-						);
+						const fileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.filename);
 						const file = await fileHandle.getFile();
 						const originalContent = await file.text();
 						const parser = getPrettierParser(parameters.filename);
-						
 						prettierWorker.postMessage({ code: originalContent, parser });
-						
-						result = {
-							status: 'Success',
-							message: `Formatting request for '${parameters.filename}' sent to the worker.`,
-						};
+						resultForModel = { message: `Formatting request for '${parameters.filename}' sent.` };
 						break;
 					}
 					case 'analyze_code': {
 						if (!parameters.filename.endsWith('.js')) {
-							result = {
-								status: 'Error',
-								message:
-								'This tool can only analyze .js files. For other file types, use read_file.',
-							};
-							break;
+							throw new Error('This tool can only analyze .js files. Use read_file for others.');
 						}
-						const fileHandle = await getFileHandleFromPath(
-						rootDirectoryHandle,
-						parameters.filename,
-						);
+						const fileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.filename);
 						const file = await fileHandle.getFile();
 						const content = await file.text();
-						
-						const ast = acorn.parse(content, {
-							ecmaVersion: 'latest',
-							sourceType: 'module',
-							locations: true,
-						});
-						
-						const analysis = {
-							functions: [],
-							classes: [],
-							imports: [],
-						};
-						
+						const ast = acorn.parse(content, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
+						const analysis = { functions: [], classes: [], imports: [] };
 						acorn.walk.simple(ast, {
-							FunctionDeclaration(node) {
-								analysis.functions.push({
-									name: node.id.name,
-									start: node.loc.start.line,
-									end: node.loc.end.line,
-								});
-							},
-							ClassDeclaration(node) {
-								analysis.classes.push({
-									name: node.id.name,
-									start: node.loc.start.line,
-									end: node.loc.end.line,
-								});
-							},
-							ImportDeclaration(node) {
-								analysis.imports.push({
-									source: node.source.value,
-									specifiers: node.specifiers.map(
-									(s) => s.local.name,
-									),
-								});
-							},
+							FunctionDeclaration(node) { analysis.functions.push({ name: node.id.name, start: node.loc.start.line, end: node.loc.end.line }); },
+							ClassDeclaration(node) { analysis.classes.push({ name: node.id.name, start: node.loc.start.line, end: node.loc.end.line }); },
+							ImportDeclaration(node) { analysis.imports.push({ source: node.source.value, specifiers: node.specifiers.map((s) => s.local.name) }); },
 						});
-						
-						result = {
-							status: 'Success',
-							analysis: analysis,
-						};
+						resultForModel = { analysis: analysis };
 						break;
 					}
 					default:
-					result = {
-						status: 'Error',
-						message: `Unknown tool '${toolName}'.`,
-					};
-					break;
+						throw new Error(`Unknown tool '${toolName}'.`);
 				}
+				resultForLog = { status: 'Success', ...resultForModel };
 			} catch (error) {
-				result = {
-					status: 'Error',
-					message: `Error executing tool '${toolName}': ${error.message}`,
-				};
+				isSuccess = false;
+				const errorMessage = `Error executing tool '${toolName}': ${error.message}`;
+				resultForModel = { error: errorMessage };
+				resultForLog = { status: 'Error', message: errorMessage };
 			}
-			console.log('Result:', result);
-			console.groupEnd(); // End the tool call group
-			this.updateToolLog(logEntry, true);
-			return { toolResponse: { name: toolName, response: result } };
+			
+			console.log('Result:', resultForLog);
+			console.groupEnd();
+			this.updateToolLog(logEntry, isSuccess);
+			return { toolResponse: { name: toolName, response: resultForModel } };
 		},
 		
 		async sendMessage() {
@@ -862,6 +760,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			this.appendMessage(displayMessage.trim(), 'user');
 			chatInput.value = '';
 			clearImagePreview();
+			
+			// --- User Query Logging ---
+			console.log(`[User Query] ${userPrompt}`);
 			
 			try {
 				let promptParts = initialParts;
@@ -1296,22 +1197,48 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	
 	const formatTreeToString = (node, prefix = '') => {
-		let result = prefix ? `${prefix}${node.name}\n` : `${node.name}\n`;
+		let result = '';
 		const children = node.children || [];
 		children.forEach((child, index) => {
 			const isLast = index === children.length - 1;
-			const newPrefix =
-			prefix +
-			(prefix ? (isLast ? '    ' : '│   ') : isLast ? '└── ' : '├── ');
-			const childPrefix = prefix + (isLast ? '└── ' : '├── ');
+			const connector = isLast ? '└── ' : '├── ';
+			result += `${prefix}${connector}${child.name}\n`;
 			if (child.kind === 'directory') {
-				result += formatTreeToString(child, childPrefix);
-			} else {
-				result += `${childPrefix}${child.name}\n`;
+				const newPrefix = prefix + (isLast ? '    ' : '│   ');
+				result += formatTreeToString(child, newPrefix);
 			}
 		});
 		return result;
 	};
+
+	async function buildStructureTree(dirHandle) {
+		const root = {
+			name: dirHandle.name,
+			kind: 'directory',
+			children: []
+		};
+
+		for await (const entry of dirHandle.values()) {
+			if (entry.kind === 'directory') {
+				const childNode = await buildStructureTree(entry);
+				root.children.push(childNode);
+			} else {
+				root.children.push({
+					name: entry.name,
+					kind: 'file',
+				});
+			}
+		}
+
+		// Sort so folders appear before files
+		root.children.sort((a, b) => {
+			if (a.kind === 'directory' && b.kind !== 'directory') return -1;
+			if (a.kind !== 'directory' && b.kind === 'directory') return 1;
+			return a.name.localeCompare(b.name);
+		});
+
+		return root;
+	}
 	
 	async function getFileHandleFromPath(dirHandle, path, options = {}) {
 		const parts = path.split('/').filter((p) => p);
@@ -1330,16 +1257,77 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function getParentDirectoryHandle(rootDirHandle, path) {
 		const parts = path.split('/').filter((p) => p);
 		if (parts.length === 0) {
-			throw new Error('Invalid file path provided.');
+			throw new Error('Invalid path provided. Cannot get parent of root.');
 		}
-		
+
 		let currentHandle = rootDirHandle;
+		// Traverse to the parent directory
 		for (let i = 0; i < parts.length - 1; i++) {
 			currentHandle = await currentHandle.getDirectoryHandle(parts[i]);
 		}
+
+		const entryName = parts[parts.length - 1];
+		return { parentHandle: currentHandle, entryName };
+	}
+	
+	async function createDirectoryFromPath(dirHandle, path) {
+		const parts = path.split('/').filter((p) => p);
+		let currentHandle = dirHandle;
+		for (const part of parts) {
+			currentHandle = await currentHandle.getDirectoryHandle(part, { create: true });
+		}
+		return currentHandle;
+	}
+	
+	async function getDirectoryHandleFromPath(dirHandle, path) {
+		const parts = path.split('/').filter((p) => p);
+		let currentHandle = dirHandle;
+		for (const part of parts) {
+			currentHandle = await currentHandle.getDirectoryHandle(part);
+		}
+		return currentHandle;
+	}
+	
+	async function moveFile(rootDirHandle, oldPath, newPath) {
+		// 1. Get handle for the old file and read its content
+		const oldFileHandle = await getFileHandleFromPath(rootDirHandle, oldPath);
+		const file = await oldFileHandle.getFile();
+		const content = await file.arrayBuffer();
+		// 2. Create the new file with the same content
+		const newFileHandle = await getFileHandleFromPath(rootDirHandle, newPath, { create: true });
+		const writable = await newFileHandle.createWritable();
+		await writable.write(content);
+		await writable.close();
+		// 3. Delete the old file
+		const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, oldPath);
+		await parentHandle.removeEntry(entryName);
+	}
+
+	async function moveDirectory(rootDirHandle, oldPath, newPath) {
+		const oldDirHandle = await getDirectoryHandleFromPath(rootDirHandle, oldPath);
+		const newDirHandle = await createDirectoryFromPath(rootDirHandle, newPath);
 		
-		const fileNameToDelete = parts[parts.length - 1];
-		return { parentHandle: currentHandle, fileNameToDelete };
+		for await (const entry of oldDirHandle.values()) {
+			if (entry.kind === 'file') {
+				const file = await entry.getFile();
+				const newFileHandle = await newDirHandle.getFileHandle(entry.name, { create: true });
+				const writable = await newFileHandle.createWritable();
+				await writable.write(await file.arrayBuffer());
+				await writable.close();
+			} else if (entry.kind === 'directory') {
+				await moveDirectory(
+				rootDirHandle,
+				`${oldPath}/${entry.name}`,
+				`${newPath}/${entry.name}`,
+				);
+			}
+		}
+		
+		const { parentHandle, entryName: dirNameToDelete } = await getParentDirectoryHandle(
+		rootDirHandle,
+		oldPath,
+		);
+		await parentHandle.removeEntry(dirNameToDelete, { recursive: true });
 	}
 	
 	async function searchInDirectory(
@@ -1478,6 +1466,14 @@ document.addEventListener('DOMContentLoaded', () => {
 	chatSendButton.addEventListener('click', () => GeminiChat.sendMessage());
 	chatCancelButton.addEventListener('click', () => GeminiChat.cancelMessage());
 	
+	document.getElementById('run-folder-tests-button').addEventListener('click', () => {
+		if (rootDirectoryHandle) {
+			runFolderManagementTests(rootDirectoryHandle);
+		} else {
+			alert("Please open a project folder first.");
+		}
+	});
+
 	// Rate Limiter Listeners
 	rateLimitSlider.addEventListener('input', () => {
 		rateLimitInput.value = rateLimitSlider.value;
