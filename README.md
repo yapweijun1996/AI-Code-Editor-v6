@@ -19,7 +19,7 @@ The editor's architecture has been streamlined to use a local Node.js server, si
 ## Features
 
 *   **Monaco Editor**: Integrates the same powerful editor used in VS Code, providing a rich and familiar coding environment with syntax highlighting and advanced editing features.
-*   **XState-Powered AI Agent**: A stateful AI assistant whose logic is managed by an **XState state machine**. This provides a robust and predictable foundation for handling chat interactions, tool use, and error states.
+*   **Gemini AI Agent**: A stateful AI assistant powered by the Google Gemini API with official tool-calling capabilities. The agent can understand context, use tools, and assist with tasks like code generation, file manipulation, and project-wide searches.
 *   **Resizable Panels**: A flexible UI with resizable panels for the file tree, editor, and AI chat.
 *   **Intelligent Tab Management**: Open, close, and switch between multiple files. The system is smart enough to recognize already-open files and simply switch to the correct tab instead of creating duplicates.
 *   **Automatic File Opening**: When the AI agent reads, creates, or rewrites a file, it is automatically opened or focused, providing immediate visibility into the agent's actions.
@@ -69,17 +69,31 @@ The management scripts also provide options to **stop**, **restart**, and **moni
 
 ---
 
-## State Machine Diagram
+## Workflow Diagram
 
-The application's logic is orchestrated by a central XState state machine. This diagram provides a high-level overview of its states and transitions. For a more detailed breakdown, see `docs/ARCHITECTURE.md`.
+This diagram illustrates the core interaction loop between the user, the frontend, the AI agent, and the local file system.
 
 ```mermaid
-graph TD
-    A[initializing] --> B{idle};
-    B -->|SEND_MESSAGE| C[sendingMessage];
-    C -->|onDone| B;
-    C -->|onError| D[error];
-    D -->|RETRY| C;
+sequenceDiagram
+    participant User
+    participant Frontend (Browser)
+    participant AI Agent (Gemini)
+    participant File System API
+
+    User->>Frontend (Browser): Submits a prompt
+    Frontend (Browser)->>AI Agent (Gemini): Sends prompt for processing
+    alt AST-Powered Analysis
+        AI Agent (Gemini)-->>Frontend (Browser): Requests tool call (analyze_code)
+        Frontend (Browser)->>Frontend (Browser): Executes tool (parses AST)
+        Frontend (Browser)-->>AI Agent (Gemini): Sends analysis result
+    else Standard File Operation
+        AI Agent (Gemini)-->>Frontend (Browser): Requests tool call (e.g., read_file)
+        Frontend (Browser)->>File System API: Executes tool (reads file)
+        File System API-->>Frontend (Browser): Returns file content
+        Frontend (Browser)->>AI Agent (Gemini): Sends tool result
+    end
+    AI Agent (Gemini)-->>Frontend (Browser): Sends final answer
+    Frontend (Browser)-->>User: Displays final answer
 ```
 
 ---

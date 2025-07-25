@@ -1,6 +1,3 @@
-import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
-import { appMachine } from './app-state.js';
-
 document.addEventListener('DOMContentLoaded', () => {
   // --- Editor and File Tree Elements ---
   const fileTreeContainer = document.getElementById('file-tree');
@@ -343,6 +340,8 @@ const toolLogContainer = document.getElementById('tool-log-container');
   // === Gemini Agentic Chat Manager with Official Tool Calling    ===
   // =================================================================
   const GeminiChat = {
+    isSending: false,
+    isCancelled: false,
     abortController: null,
     chatSession: null,
     activeModelName: '', // To track the model used by the current session
@@ -430,7 +429,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
       } catch (error) {
         console.error('Failed to start chat session:', error);
         this.appendMessage(`Error: Could not start chat session. ${error.message}`, 'ai');
-        throw error;
       }
     },
 
@@ -782,7 +780,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
       return { toolResponse: { name: toolName, response: result } };
     },
 
-    async sendMessage(prompt, image) {
+    async sendMessage() {
       // --- Model and History Management ---
       const selectedModel = modelSelector.value;
       if (!this.chatSession || this.activeModelName !== selectedModel) {
@@ -801,7 +799,8 @@ const toolLogContainer = document.getElementById('tool-log-container');
        await new Promise(resolve => setTimeout(resolve, delay));
      }
 
-      if ((!prompt && !image)) return;
+      const userPrompt = chatInput.value.trim();
+      if ((!userPrompt && !uploadedImage) || this.isSending) return;
 
       if (!this.chatSession) {
         await this._startChat(); // Start a fresh session if one doesn't exist
@@ -810,18 +809,22 @@ const toolLogContainer = document.getElementById('tool-log-container');
       
       this.lastRequestTime = Date.now();
 
-      // this.isCancelled is now handled by the state machine's state
+      this.isSending = true;
+      this.isCancelled = false;
+      chatSendButton.style.display = 'none';
+      chatCancelButton.style.display = 'inline-block';
+      thinkingIndicator.style.display = 'block';
 
       // Prepare initial user message and display it
-      let displayMessage = prompt;
+      let displayMessage = userPrompt;
       const initialParts = [];
-      if (prompt) initialParts.push({ text: prompt });
-      if (image) {
-        displayMessage += `\n📷 Attached: ${image.name}`;
+      if (userPrompt) initialParts.push({ text: userPrompt });
+      if (uploadedImage) {
+        displayMessage += `\n📷 Attached: ${uploadedImage.name}`;
         initialParts.push({
           inlineData: {
-            mimeType: image.type,
-            data: image.data,
+            mimeType: uploadedImage.type,
+            data: uploadedImage.data,
           },
         });
       }
@@ -837,7 +840,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
         ApiKeyManager.resetTriedKeys();
 
         // Loop to handle potential multi-turn tool calls and API key rotation
-        while (running) {
+        while (running && !this.isCancelled) {
           const modelName = modelSelector.value; // Always capture latest value before each attempt
           try {
             // This is the main conversation loop.
@@ -852,6 +855,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
             let functionCalls = [];
 
             for await (const chunk of result.stream) {
+              if (this.isCancelled) break;
               const chunkText = chunk.text();
               if (chunkText) {
                 fullResponseText += chunkText;
@@ -862,6 +866,8 @@ const toolLogContainer = document.getElementById('tool-log-container');
                 functionCalls.push(...chunkFunctionCalls);
               }
             }
+
+            if (this.isCancelled) break;
 
             // If there are tool calls, execute them and continue the loop
             if (functionCalls.length > 0) {
@@ -909,17 +915,28 @@ const toolLogContainer = document.getElementById('tool-log-container');
             }
           }
         }
+
+        if (this.isCancelled) {
+          this.appendMessage('Cancelled by user.', 'ai');
+        }
       } catch (error) {
         this.appendMessage(`An error occurred: ${error.message}`, 'ai');
         console.error('Chat Error:', error);
-        throw error; // Re-throw the error to be caught by the state machine
       } finally {
         console.groupEnd();
+        this.isSending = false;
+        chatSendButton.style.display = 'inline-block';
+        chatCancelButton.style.display = 'none';
+        thinkingIndicator.style.display = 'none';
       }
     },
 
     cancelMessage() {
-      // This is now handled by the state machine sending a CANCEL_MESSAGE event
+      if (this.isSending) {
+        this.isCancelled = true;
+        // The SDK doesn't have a direct abort controller,
+        // but we can stop processing the stream.
+      }
     },
 
     async clearHistory() {
@@ -1409,53 +1426,8 @@ const toolLogContainer = document.getElementById('tool-log-container');
   });
 
   saveKeysButton.addEventListener('click', () => ApiKeyManager.saveKeys());
-  const appActor = createActor(appMachine, {
-    implementations: {
-      actors: {
-        sendMessageService: ({ input }) => {
-          return GeminiChat.sendMessage(input.prompt, input.image);
-        },
-      },
-    },
-  }).start();
-
-  appActor.subscribe((state) => {
-    // This is where we will update the UI based on the state
-    console.log('New state:', state.value, state.context);
-    const isSending = state.matches('sendingMessage');
-    chatSendButton.style.display = isSending ? 'none' : 'inline-block';
-    chatCancelButton.style.display = isSending ? 'inline-block' : 'none';
-    thinkingIndicator.style.display = isSending ? 'block' : 'none';
-
-    // Update file tree visibility based on state
-    const fileTreePanel = document.getElementById('file-tree-container');
-    if (state.context.isFileTreeVisible) {
-      fileTreePanel.classList.remove('hidden');
-      window.splitInstance.setSizes([15, 55, 30]);
-    } else {
-      fileTreePanel.classList.add('hidden');
-      window.splitInstance.setSizes([0, 70, 30]);
-    }
-    setTimeout(() => {
-      if (editor) {
-        editor.layout();
-      }
-    }, 50);
-  });
-
-  chatSendButton.addEventListener('click', () => {
-    const userPrompt = chatInput.value.trim();
-    if (userPrompt || uploadedImage) {
-      appActor.send({
-        type: 'SEND_MESSAGE',
-        prompt: userPrompt,
-        image: uploadedImage,
-      });
-    }
-  });
-  chatCancelButton.addEventListener('click', () => {
-    appActor.send({ type: 'CANCEL_MESSAGE' });
-  });
+  chatSendButton.addEventListener('click', () => GeminiChat.sendMessage());
+  chatCancelButton.addEventListener('click', () => GeminiChat.cancelMessage());
 
  // Rate Limiter Listeners
  rateLimitSlider.addEventListener('input', () => {
@@ -1500,12 +1472,32 @@ const toolLogContainer = document.getElementById('tool-log-container');
 
   let isFileTreeCollapsed = false;
   toggleFilesButton.addEventListener('click', () => {
-    appActor.send({ type: 'TOGGLE_FILE_TREE' });
+    const fileTreePanel = document.getElementById('file-tree-container');
+    if (!window.splitInstance || !fileTreePanel) return;
+
+    isFileTreeCollapsed = !isFileTreeCollapsed;
+
+    if (isFileTreeCollapsed) {
+      // Hide contents and collapse panel
+      fileTreePanel.classList.add('hidden');
+      window.splitInstance.setSizes([0, 70, 30]);
+    } else {
+      // Restore panel and show contents
+      fileTreePanel.classList.remove('hidden');
+      window.splitInstance.setSizes([15, 55, 30]);
+    }
+    
+    // A brief delay helps the editor layout adjust correctly after the transition
+    setTimeout(() => {
+      if (editor) {
+        editor.layout();
+      }
+    }, 50);
   });
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      chatSendButton.click(); // Trigger the same logic as the button click
+      GeminiChat.sendMessage();
     }
   });
   editorContainer.addEventListener('keydown', (e) => {
