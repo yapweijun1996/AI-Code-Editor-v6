@@ -1222,8 +1222,8 @@ const toolLogContainer = document.getElementById('tool-log-container');
       json: 'json',
       md: 'markdown',
       php: 'php',
-      cfml: 'coldfusion',
-      cfm: 'coldfusion',
+      cfml: 'cfml',
+      cfm: 'cfml',
     })[ext] || 'plaintext';
     
     function getPrettierParser(filename) {
