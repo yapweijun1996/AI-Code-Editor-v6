@@ -1,4 +1,4 @@
-import { createMachine, assign } from 'xstate';
+import { createMachine, assign } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 
 export const appMachine = createMachine({
   id: 'app',

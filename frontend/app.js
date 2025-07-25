@@ -1,6 +1,6 @@
-import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.15.0/dist/xstate.js';
+import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 import { appMachine } from './app-state.js';
-import { devTools } from 'https://cdn.jsdelivr.net/npm/@xstate/dev-tools@0.4.0/dist/dev-tools.js';
+import { devTools } from 'https://cdn.jsdelivr.net/npm/@xstate/dev-tools@0.4.0/+esm';
 
 devTools.start();
 document.addEventListener('DOMContentLoaded', () => {
