@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Intelligent Code Editor</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container" id="split-container">
+      <div id="file-tree-container" class="sidebar">
+        <h2>Project Files</h2>
+        <div id="file-tree"></div>
+      </div>
+      <div id="editor-container" class="main-content">
+        <div id="tab-bar"></div>
+        <div id="editor"></div>
+      </div>
+      <div id="chat-panel" class="sidebar">
+        <h2>AI Chat</h2>
+        <div id="chat-messages"></div>
+        <div id="chat-input-container">
+          <div id="chat-toolbar">
+            <div class="toolbar-group">
+              <select id="model-selector" title="Select AI Model">
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-flash-lite">
+                  Gemini 2.5 Flash Lite
+                </option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              </select>
+              <select id="agent-mode-selector" title="Select Agent Mode">
+                <option value="code">Code Mode</option>
+                <option value="plan">Plan Mode</option>
+                <option value="search">Plan + Search</option>
+              </select>
+            </div>
+            <div class="toolbar-group">
+              <div class="dropdown">
+                <button class="dropdown-button">Context</button>
+                <div class="dropdown-content">
+                  <button id="view-context-button">View Context</button>
+                  <button id="condense-context-button">Condense Context</button>
+                  <button id="clear-context-button">Clear Context</button>
+                </div>
+              </div>
+              <button id="format-button">Format Document</button>
+              <button id="toggle-files-button">Toggle Files</button>
+            </div>
+          </div>
+          <div id="image-preview-container" style="display: none"></div>
+          <textarea
+            id="chat-input"
+            placeholder="Type your message..."
+          ></textarea>
+          <div id="chat-actions">
+            <input
+              type="file"
+              id="image-input"
+              accept="image/*"
+              style="display: none"
+            />
+            <button id="image-upload-button">📎</button>
+            <button id="chat-send-button">Send</button>
+            <button id="chat-cancel-button" style="display: none">
+              Cancel
+            </button>
+            <div id="thinking-indicator" style="display: none"></div>
+          </div>
+        </div>
+        <div id="tool-log-container" class="collapsible-container collapsed">
+          <div class="tool-log-header">
+            <h3>
+              <span class="collapse-icon">▶</span>
+              Tool Activity Log
+            </h3>
+          </div>
+          <div id="tool-log-messages" class="collapsible-content"></div>
+        </div>
+        <details id="chat-settings">
+          <summary>API Key Settings</summary>
+          <p>
+            Enter one or more Gemini API keys, separated by new lines. They will
+            be stored locally and rotated automatically if one fails.
+          </p>
+          <textarea
+            id="api-keys-textarea"
+            placeholder="Enter API keys here..."
+          ></textarea>
+          <div id="rate-limiter-setting">
+            <label for="rate-limit-slider">Request Delay (seconds):</label>
+            <input type="range" id="rate-limit-slider" min="0" max="300" value="5" />
+            <input type="number" id="rate-limit-input" min="0" max="300" value="5" />
+          </div>
+          <button id="save-keys-button">Save Keys</button>
+        </details>
+      </div>
+    </div>
+
+    <div id="context-modal" class="modal" style="display: none">
+      <div class="modal-content">
+        <span class="close-button">&times;</span>
+        <h2>Current Conversation Context</h2>
+        <pre id="context-display"></pre>
+      </div>
+    </div>
+
+    <!-- Load diff.js before Monaco loader to ensure Diff is globally available -->
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"></script>
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+    <script src="https://unpkg.com/split.js/dist/split.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@2.3.8/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/acorn@8.12.1/dist/acorn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <script type="module">
+      import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai';
+      window.GoogleGenerativeAI = GoogleGenerativeAI;
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>
