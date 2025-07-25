@@ -514,7 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					'create_file', 'read_file', 'search_code', 'get_project_structure',
 					'delete_file', 'build_or_update_codebase_index', 'query_codebase',
 					'create_folder', 'delete_folder', 'rename_folder', 'rewrite_file',
-					'format_code', 'analyze_code'
+					'format_code', 'analyze_code', 'rename_file'
 				].includes(toolName)
 				) {
 					throw new Error("No project folder is open. Ask the user to open one.");
@@ -564,6 +564,18 @@ document.addEventListener('DOMContentLoaded', () => {
 						await moveDirectory(rootDirectoryHandle, parameters.old_folder_path, parameters.new_folder_path);
 						await refreshFileTree();
 						resultForModel = { message: `Folder '${parameters.old_folder_path}' renamed to '${parameters.new_folder_path}' successfully.` };
+						break;
+					}
+					case 'rename_file': {
+						await moveFile(rootDirectoryHandle, parameters.old_path, parameters.new_path);
+						await refreshFileTree();
+						// Close the old file tab if it's open and open the new one
+						if (openFiles.has(parameters.old_path)) {
+							closeTab(parameters.old_path);
+							const newFileHandle = await getFileHandleFromPath(rootDirectoryHandle, parameters.new_path);
+							await openFile(newFileHandle, parameters.new_path);
+						}
+						resultForModel = { message: `File '${parameters.old_path}' renamed to '${parameters.new_path}' successfully.` };
 						break;
 					}
 					case 'create_folder': {
