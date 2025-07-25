@@ -8,10 +8,24 @@ This document outlines the architecture of the AI-Powered Code Editor.
 *   **Backend**: A Node.js server using Express. It handles requests from the frontend, communicates with the Google Gemini API, and can execute terminal commands.
 *   **AI Agent**: The agent logic is integrated into the frontend, using the Gemini API for tool-calling and chat functionality.
 
-## Session and State Management
+## State Management with XState
 
-The application's state management is architected to be robust and resilient, especially during error recovery.
+The application's state management has been refactored to use **XState**, a powerful library for creating and managing state machines. This provides a robust, centralized, and predictable way to handle application logic, replacing the previous imperative approach.
 
-*   **Stateful Session Initialization**: The core principle is that a Gemini chat session's history is immutable after creation. Therefore, the application ensures that any new session, whether started fresh or restarted after an error, is initialized correctly.
-*   **Correct History Preservation**: When a session needs to be restarted (e.g., due to a model change or a transient API error), the complete history from the previous session is first retrieved. This history is then passed directly into the `model.startChat({ history: [...] })` method.
-*   **Architectural Soundness**: This approach is the officially supported method by the Google AI SDK and prevents the context loss and cascading failures that occurred with previous, incorrect implementations (which attempted to modify the history of a live session object). The `_startChat(history = [])` function in `frontend/app.js` is the single source of truth for this logic.
+*   **Centralized State Machine**: All primary application state is managed by a single XState machine defined in `frontend/app-state.js`. This includes the AI chat's status (idle, sending, error), tool-calling logic, and even UI state like panel visibility.
+*   **Declarative Logic**: Instead of using boolean flags (`isSending`), the application now transitions between clearly defined states (e.g., `idle`, `sendingMessage`). This makes the application flow easier to understand, debug, and extend.
+*   **Visual Debugging**: The integration of `@xstate/dev-tools` allows for real-time visualization of the state machine, providing unparalleled insight into the application's behavior.
+
+### State Machine Diagram
+
+This diagram illustrates the flow of the main application state machine.
+
+```mermaid
+graph TD
+    A[initializing] --> B{idle};
+    B -->|SEND_MESSAGE| C[sendingMessage];
+    C -->|onDone| B;
+    C -->|onError| D[error];
+    D -->|RETRY| C;
+    B -->|TOGGLE_FILE_TREE| B;
+```
