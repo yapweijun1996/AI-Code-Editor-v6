@@ -1,3 +1,8 @@
+import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.15.0/dist/xstate.js';
+import { appMachine } from './app-state.js';
+import { devTools } from 'https://cdn.jsdelivr.net/npm/@xstate/dev-tools@0.4.0/dist/dev-tools.js';
+
+devTools.start();
 document.addEventListener('DOMContentLoaded', () => {
   // --- Editor and File Tree Elements ---
   const fileTreeContainer = document.getElementById('file-tree');
@@ -340,8 +345,6 @@ const toolLogContainer = document.getElementById('tool-log-container');
   // === Gemini Agentic Chat Manager with Official Tool Calling    ===
   // =================================================================
   const GeminiChat = {
-    isSending: false,
-    isCancelled: false,
     abortController: null,
     chatSession: null,
     activeModelName: '', // To track the model used by the current session
@@ -780,7 +783,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
       return { toolResponse: { name: toolName, response: result } };
     },
 
-    async sendMessage() {
+    async sendMessage(prompt, image) {
       // --- Model and History Management ---
       const selectedModel = modelSelector.value;
       if (!this.chatSession || this.activeModelName !== selectedModel) {
@@ -799,8 +802,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
        await new Promise(resolve => setTimeout(resolve, delay));
      }
 
-      const userPrompt = chatInput.value.trim();
-      if ((!userPrompt && !uploadedImage) || this.isSending) return;
+      if ((!prompt && !image)) return;
 
       if (!this.chatSession) {
         await this._startChat(); // Start a fresh session if one doesn't exist
@@ -809,22 +811,18 @@ const toolLogContainer = document.getElementById('tool-log-container');
       
       this.lastRequestTime = Date.now();
 
-      this.isSending = true;
       this.isCancelled = false;
-      chatSendButton.style.display = 'none';
-      chatCancelButton.style.display = 'inline-block';
-      thinkingIndicator.style.display = 'block';
 
       // Prepare initial user message and display it
-      let displayMessage = userPrompt;
+      let displayMessage = prompt;
       const initialParts = [];
-      if (userPrompt) initialParts.push({ text: userPrompt });
-      if (uploadedImage) {
-        displayMessage += `\n📷 Attached: ${uploadedImage.name}`;
+      if (prompt) initialParts.push({ text: prompt });
+      if (image) {
+        displayMessage += `\n📷 Attached: ${image.name}`;
         initialParts.push({
           inlineData: {
-            mimeType: uploadedImage.type,
-            data: uploadedImage.data,
+            mimeType: image.type,
+            data: image.data,
           },
         });
       }
@@ -922,12 +920,9 @@ const toolLogContainer = document.getElementById('tool-log-container');
       } catch (error) {
         this.appendMessage(`An error occurred: ${error.message}`, 'ai');
         console.error('Chat Error:', error);
+        throw error; // Re-throw the error to be caught by the state machine
       } finally {
         console.groupEnd();
-        this.isSending = false;
-        chatSendButton.style.display = 'inline-block';
-        chatCancelButton.style.display = 'none';
-        thinkingIndicator.style.display = 'none';
       }
     },
 
@@ -1426,7 +1421,48 @@ const toolLogContainer = document.getElementById('tool-log-container');
   });
 
   saveKeysButton.addEventListener('click', () => ApiKeyManager.saveKeys());
-  chatSendButton.addEventListener('click', () => GeminiChat.sendMessage());
+  const appActor = createActor(appMachine, {
+    services: {
+      sendMessageService: (context, event) => {
+        return GeminiChat.sendMessage(event.prompt, event.image);
+      },
+    },
+  }).start();
+
+  appActor.subscribe((state) => {
+    // This is where we will update the UI based on the state
+    console.log('New state:', state.value, state.context);
+    const isSending = state.matches('sendingMessage');
+    chatSendButton.style.display = isSending ? 'none' : 'inline-block';
+    chatCancelButton.style.display = isSending ? 'inline-block' : 'none';
+    thinkingIndicator.style.display = isSending ? 'block' : 'none';
+
+    // Update file tree visibility based on state
+    const fileTreePanel = document.getElementById('file-tree-container');
+    if (state.context.isFileTreeVisible) {
+      fileTreePanel.classList.remove('hidden');
+      window.splitInstance.setSizes([15, 55, 30]);
+    } else {
+      fileTreePanel.classList.add('hidden');
+      window.splitInstance.setSizes([0, 70, 30]);
+    }
+    setTimeout(() => {
+      if (editor) {
+        editor.layout();
+      }
+    }, 50);
+  });
+
+  chatSendButton.addEventListener('click', () => {
+    const userPrompt = chatInput.value.trim();
+    if (userPrompt || uploadedImage) {
+      appActor.send({
+        type: 'SEND_MESSAGE',
+        prompt: userPrompt,
+        image: uploadedImage,
+      });
+    }
+  });
   chatCancelButton.addEventListener('click', () => GeminiChat.cancelMessage());
 
  // Rate Limiter Listeners
@@ -1472,27 +1508,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
 
   let isFileTreeCollapsed = false;
   toggleFilesButton.addEventListener('click', () => {
-    const fileTreePanel = document.getElementById('file-tree-container');
-    if (!window.splitInstance || !fileTreePanel) return;
-
-    isFileTreeCollapsed = !isFileTreeCollapsed;
-
-    if (isFileTreeCollapsed) {
-      // Hide contents and collapse panel
-      fileTreePanel.classList.add('hidden');
-      window.splitInstance.setSizes([0, 70, 30]);
-    } else {
-      // Restore panel and show contents
-      fileTreePanel.classList.remove('hidden');
-      window.splitInstance.setSizes([15, 55, 30]);
-    }
-    
-    // A brief delay helps the editor layout adjust correctly after the transition
-    setTimeout(() => {
-      if (editor) {
-        editor.layout();
-      }
-    }, 50);
+    appActor.send({ type: 'TOGGLE_FILE_TREE' });
   });
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
