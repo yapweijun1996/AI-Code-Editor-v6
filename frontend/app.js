@@ -1,8 +1,9 @@
 import { createActor } from 'https://cdn.jsdelivr.net/npm/xstate@5.20.1/+esm';
 import { appMachine } from './app-state.js';
-import { devTools } from 'https://cdn.jsdelivr.net/npm/@xstate/dev-tools@0.4.0/+esm';
 
-devTools.start();
+XStateInspect.inspect({
+  iframe: false,
+});
 document.addEventListener('DOMContentLoaded', () => {
   // --- Editor and File Tree Elements ---
   const fileTreeContainer = document.getElementById('file-tree');
@@ -1422,6 +1423,7 @@ const toolLogContainer = document.getElementById('tool-log-container');
 
   saveKeysButton.addEventListener('click', () => ApiKeyManager.saveKeys());
   const appActor = createActor(appMachine, {
+    devTools: true,
     services: {
       sendMessageService: (context, event) => {
         return GeminiChat.sendMessage(event.prompt, event.image);
